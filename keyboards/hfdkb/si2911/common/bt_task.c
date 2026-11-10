@@ -640,6 +640,33 @@ bool bt_process_record(uint16_t keycode, keyrecord_t *record) {
                         WL_PROCESS_KEYS(KC_LGUI, record->event.pressed);
                 }
                 retval = WL_PROCESS_KEYS(QK_MODS_GET_BASIC_KEYCODE(keycode), record->event.pressed);
+            } else if ((keycode >= QK_MOD_TAP) && (keycode <= QK_MOD_TAP_MAX)) {
+                if (record->tap.count == 0) {
+                    if (QK_MODS_GET_MODS(keycode) & 0x1) {
+                        if (QK_MODS_GET_MODS(keycode) & 0x10)
+                            WL_PROCESS_KEYS(KC_RCTL, record->event.pressed);
+                        else
+                            WL_PROCESS_KEYS(KC_LCTL, record->event.pressed);
+                    }
+                    if (QK_MODS_GET_MODS(keycode) & 0x2) {
+                        if (QK_MODS_GET_MODS(keycode) & 0x10)
+                            WL_PROCESS_KEYS(KC_RSFT, record->event.pressed);
+                        else
+                            WL_PROCESS_KEYS(KC_LSFT, record->event.pressed);
+                    }
+                    if (QK_MODS_GET_MODS(keycode) & 0x4) {
+                        if (QK_MODS_GET_MODS(keycode) & 0x10)
+                            WL_PROCESS_KEYS(KC_RALT, record->event.pressed);
+                        else
+                            WL_PROCESS_KEYS(KC_LALT, record->event.pressed);
+                    }
+                    if (QK_MODS_GET_MODS(keycode) & 0x8) {
+                        if (QK_MODS_GET_MODS(keycode) & 0x10)
+                            WL_PROCESS_KEYS(KC_RGUI, record->event.pressed);
+                        else
+                            WL_PROCESS_KEYS(KC_LGUI, record->event.pressed);
+                    }
+                }
             } else if (IS_BASIC_KEYCODE(keycode)) {
                 if (record->event.pressed) {
                     register_code(keycode);
