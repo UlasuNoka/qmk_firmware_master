@@ -1,0 +1,105 @@
+name: Build YUNZII B98 PRO Firmware
+
+on:
+  push:
+    branches:
+      - hfdkb_playground
+      - 'b98pro*'
+  workflow_dispatch:
+    inputs:
+      bts_mode:
+        description: 'Бездротова бібліотека (both / factory_blob / open_source)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - factory_blob
+          - open_source
+      tapping_term:
+        description: 'Кастомний TAPPING_TERM у мс (залиште порожнім для заводського 200)'
+        required: false
+        default: ''
+        type: string
+      permissive_hold:
+        description: 'Увімкнути PERMISSIVE_HOLD?'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/qmk/qmk_cli:latest
+
+    steps:
+      - name: Configure git
+        run: |
+          git config --global --add safe.directory '*'
+          git config --global url."https://github.com/".insteadOf git://github.com/
+
+      - name: Checkout repository & submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Initialize submodules
+        run: make git-submodule || git submodule update --init --recursive
+
+      - name: Prepare Build Flags
+        id: flags
+        run: |
+          TT="${{ github.event.inputs.tapping_term }}"
+          PH="${{ github.event.inputs.permissive_hold || 'false' }}"
+          MODE="${{ github.event.inputs.bts_mode || 'both' }}"
+
+          CFLAGS_EXTRA="-Wno-error"
+          if [ -n "$TT" ]; then
+            CFLAGS_EXTRA="${CFLAGS_EXTRA} -DTAPPING_TERM=${TT}"
+          fi
+          if [ "$PH" = "true" ]; then
+            CFLAGS_EXTRA="${CFLAGS_EXTRA} -DPERMISSIVE_HOLD"
+          fi
+
+          echo "mode=${MODE}" >> $GITHUB_OUTPUT
+          echo "cflags=${CFLAGS_EXTRA}" >> $GITHUB_OUTPUT
+
+      - name: Build Step 1 (Factory lib_bts.a Blob)
+        if: ${{ steps.flags.outputs.mode == 'factory_blob' || steps.flags.outputs.mode == 'both' }}
+        run: |
+          make hfdkb/si2911:via USE_OPEN_BTS=no EXTRAFLAGS="${{ steps.flags.outputs.cflags }}"
+          mkdir -p artifacts
+          cp hfdkb_si2911_via.bin artifacts/b98pro_via_STEP1_BLOB.bin
+
+      - name: Build Step 2 (Open-Source bts_lib.c)
+        if: ${{ steps.flags.outputs.mode == 'open_source' || steps.flags.outputs.mode == 'both' }}
+        run: |
+          make clean
+          make hfdkb/si2911:via USE_OPEN_BTS=yes EXTRAFLAGS="${{ steps.flags.outputs.cflags }}"
+          mkdir -p artifacts
+          cp hfdkb_si2911_via.bin artifacts/b98pro_via_STEP2_OPEN.bin
+
+      - name: Verify Binary Vector Table & Size
+        run: |
+          python3 - << 'PYEOF'
+          import glob, struct, os
+          bins = glob.glob("artifacts/*.bin")
+          assert bins, "No .bin files found!"
+          for b in bins:
+              size = os.path.getsize(b)
+              with open(b, "rb") as f:
+                  sp, pc = struct.unpack("<II", f.read(8))
+              print(f"[{b}] Size: {size} B | SP: 0x{sp:08X} | Reset: 0x{pc:08X}")
+              assert 30000 <= size <= 262144, f"Bad size: {size}"
+              assert (sp >> 24) == 0x20, f"Bad SP: 0x{sp:08X}"
+              assert (pc >> 24) == 0x08 and (pc & 1) == 1, f"Bad Reset: 0x{pc:08X}"
+          print("All binaries verified successfully!")
+          PYEOF
+
+      - name: Upload Compiled Firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: yunzii-b98pro-firmware
+          path: artifacts/*.bin
+          if-no-files-found: error
