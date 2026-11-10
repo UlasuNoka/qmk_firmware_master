@@ -570,6 +570,9 @@ void bt_task(void) {
         }
     }
 
+    if (bts_get_nkro() != keymap_config.nkro) {
+        bts_set_nkro(keymap_config.nkro);
+    }
     bt_long_pressed_keys_hook();
     // if (!bt_init_time) bt_scan_mode();
     bt_scan_mode();
@@ -1442,15 +1445,9 @@ static void bt_bat_query_period(void) {
         }
 
         if (led_count <= 3) {
-            // for (uint8_t i = 102; i <= 106; i++) {
-            //     rgb_matrix_set_color(i, RGB_OFF);
-            // }
-            // for (uint8_t i = 102; i <= 103; i++) {
-            //     rgb_matrix_set_color(i, RGB_RED);
-            // }
-            color = (RGB){0, 100, 0}; // 红色
+            color = (RGB){100, 0, 0}; // Red (<= 30%)
         } else {
-            color = (RGB){100, 0, 0}; // 绿色
+            color = (RGB){0, 100, 0}; // Green (> 30%)
         }
 
         for (uint8_t i = 0; i < led_count; i++) {

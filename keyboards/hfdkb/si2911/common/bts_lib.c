@@ -264,6 +264,10 @@ uint8_t bts_is_busy(void) {
 /* .text.bts_set_nkro */
 void bts_set_nkro(bool state) {
     nkro_enable = state ? 1 : 0;
+    if (!state) {
+        memset(nkro_report_buf, 0, sizeof(nkro_report_buf));
+        f_report_update |= 0x02;
+    }
 }
 
 /* .text.bts_get_nkro */
