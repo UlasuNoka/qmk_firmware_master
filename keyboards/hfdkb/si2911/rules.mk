@@ -18,7 +18,11 @@ SRC += common/lp_sleep.c
 # SRC += common/wwdg.c
 SRC += bled/bled.c
 
-LDFLAGS += -L $(RULES_MK_DIR)/common -l_bts
+ifeq ($(strip $(USE_OPEN_BTS)), yes)
+    SRC += common/bts_lib.c
+else
+    LDFLAGS += -L $(RULES_MK_DIR)/common -l_bts
+endif
 
 VPATH += $(RULES_MK_DIR)/common
 VPATH += $(RULES_MK_DIR)/bled
