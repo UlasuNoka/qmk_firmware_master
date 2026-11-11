@@ -29,18 +29,16 @@ typedef enum {
 } bled_mode_t;
 
 typedef enum {
+    SLED_MODE_DOT = 0,
+    SLED_MODE_JACK_ONEWAY,
+    SLED_MODE_JACK_BOUNCE,
+    SLED_MODE_COUNT,
+    // Закоментовано для наступних етапів:
     SLED_MODE_FLOW,
     SLED_MODE_CYCLE,
     SLED_MODE_NEON,
     SLED_MODE_BREATHING,
     SLED_MODE_SOLID,
-    SLED_MODE_COUNT,
-    SLED_MODE_CHARGE,
-    SLED_MODE_CHARGED,
-    SLED_MODE_VOL,
-    SLED_MODE_LOW,
-    // SLED_MODE_CYCLE1,
-    // SLED_MODE_CYCLE2,
 } sled_mode_t;
 
 typedef enum {

@@ -36,6 +36,7 @@ enum multimode_keycodes {
 
     RGB_TEST,
     WIN_TSK,
+    SLED_DIR,
 };
 
 typedef enum {
@@ -49,7 +50,9 @@ typedef union {
     uint32_t raw;
     struct PACKED {
         uint8_t devs;
-        uint8_t last_devs;
+        uint8_t last_devs : 4;
+        uint8_t sled_dir : 1;
+        uint8_t sled_palette : 3;
         uint8_t bled_color : 4;
         uint8_t bled_mode : 4;
         uint8_t sled_color : 4;
@@ -64,6 +67,11 @@ extern bts_info_t bts_info;
 extern bool backlight_sleep_flag;
 
 extern bool query_vol_flag;
+#define SLED_BAT_DEBUG
+#ifdef SLED_BAT_DEBUG
+extern uint8_t sled_debug_pvol;
+#endif
+extern const uint8_t bat_themes_rgb[3][5][3];
 
 void led_config_all(void);
 void led_deconfig_all(void);

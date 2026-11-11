@@ -49,7 +49,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, BT_HOST1, BT_HOST2, BT_HOST3, BT_2_4G,  _______, _______, _______, _______, _______, _______, _______,  _______,  RM_TOGG,  _______,  _______, _______,  _______,  _______,
         RGB_TEST,_______,  _______,  _______,  _______,  _______, _______, _______, _______, _______, NK_TOGG, _______,  _______,  RM_NEXT,  _______,  _______, _______,  _______,  _______,
         _______, _______,  _______,  _______,  _______,  _______, _______, _______, _______, _______, _______, _______,            RM_HUEU,  _______,  _______, _______,  _______,
-        BLED_MOD,          BLED_HUI, _______,  _______,  _______, BT_VOL,  _______, _______, _______, _______, SLED_HUI, SLED_MOD, RM_VALU,            _______, _______,  _______,  _______,
+        BLED_MOD,          BLED_HUI, _______,  _______,  _______, BT_VOL,  _______, _______, _______, SLED_DIR,SLED_HUI, SLED_MOD, RM_VALU,            _______, _______,  _______,  _______,
         BLED_SPI,GU_TOGG,  BLED_VAI,                              SLED_SPI,                           SLED_VAI,_______,  RM_SPDD,  RM_VALD,  RM_SPDU,  _______,           _______),
 
     [MAC_BASE] = LAYOUT_100_ansi(
@@ -65,7 +65,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, BT_HOST1, BT_HOST2, BT_HOST3, BT_2_4G,  _______, _______, _______, _______, _______, _______, _______,  _______,  RM_TOGG,  _______,  _______, _______,  _______,  _______,
         RGB_TEST,_______,  _______,  _______,  _______,  _______, _______, _______, _______, _______, NK_TOGG, _______,  _______,  RM_NEXT,  _______,  _______, _______,  _______,  _______,
         _______, _______,  _______,  _______,  _______,  _______, _______, _______, _______, _______, _______, _______,            RM_HUEU,  _______,  _______, _______,  _______,
-        BLED_MOD,          BLED_HUI, _______,  _______,  _______, BT_VOL,  _______, _______, _______, _______, SLED_HUI, SLED_MOD, RM_VALU,            _______, _______,  _______,  _______,
+        BLED_MOD,          BLED_HUI, _______,  _______,  _______, BT_VOL,  _______, _______, _______, SLED_DIR,SLED_HUI, SLED_MOD, RM_VALU,            _______, _______,  _______,  _______,
         BLED_SPI,_______,  BLED_VAI,                              SLED_SPI,                           SLED_VAI,_______,  RM_SPDD,  RM_VALD,  RM_SPDU,  _______,           _______),
 };
 
@@ -92,6 +92,25 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 #endif
 
     switch (keycode) {
+        case RM_VALU:
+        case RM_VALD:
+        case RM_HUEU:
+        case RM_NEXT:
+        case RM_SPDU:
+        case RM_SPDD: {
+            if (!rgb_matrix_get_flags()) {
+                return false;
+            }
+            return true;
+        }
+
+        case SLED_DIR: {
+            if (record->event.pressed) {
+                dev_info.sled_dir ^= 1;
+                eeconfig_update_user(dev_info.raw);
+            }
+            return false;
+        }
         case SLED_MOD:
         case BLED_MOD: {
             if (record->event.pressed) {
@@ -109,13 +128,13 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         case BLED_VAI: {
             if (record->event.pressed) {
                 if (keycode == SLED_VAI) {
-                    if (bled_info.sled_val == RGB_MATRIX_MAXIMUM_BRIGHTNESS) {
+                    if (bled_info.sled_val >= RGB_MATRIX_MAXIMUM_BRIGHTNESS) {
                         bled_info.sled_val = 0;
                     } else {
                         bled_info.sled_val = qadd8(bled_info.sled_val, RGB_MATRIX_VAL_STEP);
                     }
                 } else {
-                    if (bled_info.bled_val == RGB_MATRIX_MAXIMUM_BRIGHTNESS) {
+                    if (bled_info.bled_val >= RGB_MATRIX_MAXIMUM_BRIGHTNESS) {
                         bled_info.bled_val = 0;
                     } else {
                         bled_info.bled_val = qadd8(bled_info.bled_val, RGB_MATRIX_VAL_STEP);
@@ -151,7 +170,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         case BLED_HUI: {
             if (record->event.pressed) {
                 if (keycode == SLED_HUI) {
-                    dev_info.sled_color = (dev_info.sled_color == COLOR_WHITE) ? COLOR_RAINBOW : (dev_info.sled_color + 1);
+                    dev_info.sled_palette = (dev_info.sled_palette + 1) % 3;
                 } else {
                     dev_info.bled_color = (dev_info.bled_color == COLOR_WHITE) ? COLOR_RED : (dev_info.bled_color + 1);
                 }

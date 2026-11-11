@@ -15,6 +15,7 @@
 #include "usb_main.h"
 #include "dynamic_keymap.h"
 #include "bled.h"
+#include "lib/lib8tion/lib8tion.h"
 
 // #include "wwdg.h"
 
@@ -216,6 +217,15 @@ static bool low_vol_off = false;
 
 extern void iwdg_pause(void);
 extern void iwdg_resume(void);
+
+#ifdef SLED_BAT_DEBUG
+uint8_t sled_debug_pvol = 0;
+#endif
+
+bool bt_is_disconnected_alert(void) {
+    return (dev_info.devs != DEVS_USB) && !bts_info.bt_info.paired &&
+           ((indicator_status == INDICATOR_PAIRING) || (indicator_status == INDICATOR_CONNECTING));
+}
 
 bool get_low_vol_off(void) {
     return low_vol_off;
@@ -880,15 +890,22 @@ static bool bt_process_record_other(uint16_t keycode, keyrecord_t *record) {
         } break;
 
         case RGB_TEST: {
+#ifdef SLED_BAT_DEBUG
             if (record->event.pressed) {
-                if (!dev_info.rgb_test_en) {
-                    dev_info.rgb_test_en = true;
-                } else {
-                    dev_info.rgb_test_en = false;
-                }
+                static const uint8_t dbg_steps[] = {0, 20, 40, 60, 80, 100, 10};
+                static uint8_t       dbg_idx     = 0;
+                dbg_idx         = (dbg_idx + 1) % (sizeof(dbg_steps) / sizeof(dbg_steps[0]));
+                sled_debug_pvol = dbg_steps[dbg_idx];
+            }
+            break;
+#else
+            if (record->event.pressed) {
+                dev_info.rgb_test_en = !dev_info.rgb_test_en;
                 eeconfig_update_user(dev_info.raw);
             }
-        } break;
+            break;
+#endif
+        }
 
         case RM_NEXT: {
             if (!record->event.pressed) {
@@ -1385,7 +1402,7 @@ static void bt_bat_low_level_warning(void) {
     // extern uint8_t sled_mode_before_charge;
     // if (bts_info.bt_info.low_vol) {
     if (Low_power) {
-        for (uint8_t i = 0; i < 102; i++) {
+        for (uint8_t i = 0; i < 100; i++) {
             rgb_matrix_set_color(i, RGB_OFF);
         }
         bled_low_indicate();
@@ -1540,20 +1557,21 @@ static void bt_bat_query_period(void) {
         //     led_count = 5;
         // }
 
-        led_count = (pvol < 10) ? 1 : ((pvol / 10) > 10 ? 10 : (pvol / 10));
+#ifdef SLED_BAT_DEBUG
+        if (sled_debug_pvol != 0) pvol = sled_debug_pvol;
+#endif
+        led_count = (pvol == 0) ? 1 : ((pvol + 9) / 10);
+        if (led_count > 10) led_count = 10;
 
-        // for (uint8_t i = 0; i < (sizeof(query_index) / sizeof(query_index[0])); i++) {
-        //     rgb_matrix_set_color(query_index[i], RGB_OFF);
-        // }
-        for (uint8_t i = 0; i < 102; i++) {
+        for (uint8_t i = 0; i < 100; i++) {
             rgb_matrix_set_color(i, RGB_OFF);
         }
 
-        if (led_count <= 3) {
-            color = (RGB){100, 0, 0}; // Red (<= 30%)
-        } else {
-            color = (RGB){0, 100, 0}; // Green (> 30%)
-        }
+        uint8_t stop = (led_count - 1) / 2;
+        uint8_t pal  = dev_info.sled_palette % 3;
+        color.r = scale8(bat_themes_rgb[pal][stop][0], 140);
+        color.g = scale8(bat_themes_rgb[pal][stop][1], 140);
+        color.b = scale8(bat_themes_rgb[pal][stop][2], 140);
 
         for (uint8_t i = 0; i < led_count; i++) {
             rgb_matrix_set_color(query_index[i], color.r, color.g, color.b);
@@ -1650,7 +1668,7 @@ bool bt_indicators_advanced(uint8_t led_min, uint8_t led_max) {
     bt_bat_query_period();
 
     // Charging status indicator
-    bt_charging_indication();
+    (void)bt_charging_indication;
 
     if (keymap_config.no_gui) {
         set_role_color(ROLE_LWIN, 0xC8, 0xC8, 0xC8);
