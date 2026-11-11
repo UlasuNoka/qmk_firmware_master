@@ -510,6 +510,8 @@ void bt_init(void) {
     }
 
     gpio_set_pin_output(A14);
+    extern void ind_mark_dirty(void);
+    ind_mark_dirty();
     if (dev_info.devs == DEVS_USB) {
         gpio_write_pin_low(A14);
     } else {
@@ -573,6 +575,8 @@ void bt_task(void) {
     if (bts_get_nkro() != keymap_config.nkro) {
         bts_set_nkro(keymap_config.nkro);
     }
+    extern void ind_check_dirty_task(void);
+    ind_check_dirty_task();
     bt_long_pressed_keys_hook();
     // if (!bt_init_time) bt_scan_mode();
     bt_scan_mode();
@@ -1132,10 +1136,111 @@ static void open_rgb(void) {
 }
 
 // ===========================================
+// Event-driven multi-LED role bitmask (debounced)
+// ===========================================
+#define ROLE_USB   (1U << 0)
+#define ROLE_HOST1 (1U << 1)
+#define ROLE_HOST2 (1U << 2)
+#define ROLE_HOST3 (1U << 3)
+#define ROLE_2_4G  (1U << 4)
+#define ROLE_LWIN  (1U << 5)
+#define ROLE_NUM   (1U << 6)
+
+static const uint8_t dev_role_table[5] = {ROLE_USB, ROLE_HOST1, ROLE_HOST2, ROLE_HOST3, ROLE_2_4G};
+static uint8_t       ind_mask[RGB_MATRIX_LED_COUNT];
+static uint8_t       ind_base_layer = 0xFF;
+static bool          ind_dirty      = true;
+static uint32_t      ind_dirty_time = 0;
+
+static inline uint16_t kc_pair_resolved(uint8_t top_layer, uint8_t base_layer, keypos_t pos) {
+    uint16_t kc = keymap_key_to_keycode(top_layer, pos);
+    if (kc == KC_TRNS) {
+        kc = keymap_key_to_keycode(base_layer, pos);
+    }
+    return kc;
+}
+
+void refresh_indicator_leds(void) {
+    (void)rgb_index_table;
+    uint8_t base   = (get_highest_layer(default_layer_state) == 2) ? 2 : 0;
+    uint8_t fn     = base + 1;
+    ind_base_layer = base;
+    memset(ind_mask, 0, sizeof(ind_mask));
+
+    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
+        for (uint8_t c = 0; c < MATRIX_COLS; c++) {
+            uint8_t led = g_led_config.matrix_co[r][c];
+            if (led == NO_LED || led >= RGB_MATRIX_LED_COUNT) {
+                continue;
+            }
+            keypos_t pos = {.row = r, .col = c};
+
+            switch (kc_pair_resolved(fn, base, pos)) {
+                case BT_USB:   ind_mask[led] |= ROLE_USB;   break;
+                case BT_HOST1: ind_mask[led] |= ROLE_HOST1; break;
+                case BT_HOST2: ind_mask[led] |= ROLE_HOST2; break;
+                case BT_HOST3: ind_mask[led] |= ROLE_HOST3; break;
+                case BT_2_4G:  ind_mask[led] |= ROLE_2_4G;  break;
+                default: break;
+            }
+
+            uint16_t bkc = keymap_key_to_keycode(base, pos);
+            if (bkc == KC_LGUI) {
+                ind_mask[led] |= ROLE_LWIN;
+            }
+            if (bkc == KC_NUM) {
+                ind_mask[led] |= ROLE_NUM;
+            }
+        }
+    }
+}
+
+static void set_role_color(uint8_t role, uint8_t r, uint8_t g, uint8_t b) {
+    for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
+        if (ind_mask[i] & role) {
+            rgb_matrix_set_color(i, r, g, b);
+        }
+    }
+}
+
+void ind_mark_dirty(void) {
+    ind_dirty      = true;
+    ind_dirty_time = timer_read32();
+}
+
+void ind_check_dirty_task(void) {
+    uint8_t base = (get_highest_layer(default_layer_state) == 2) ? 2 : 0;
+    if (ind_base_layer != base) {
+        ind_dirty = false;
+        refresh_indicator_leds();
+    } else if (ind_dirty && timer_elapsed32(ind_dirty_time) >= 100) {
+        ind_dirty = false;
+        refresh_indicator_leds();
+    }
+}
+
+extern void __real_dynamic_keymap_set_keycode(uint8_t layer, uint8_t row, uint8_t column, uint16_t keycode);
+void __wrap_dynamic_keymap_set_keycode(uint8_t layer, uint8_t row, uint8_t column, uint16_t keycode) {
+    __real_dynamic_keymap_set_keycode(layer, row, column, keycode);
+    ind_mark_dirty();
+}
+
+extern void __real_dynamic_keymap_set_buffer(uint16_t offset, uint16_t size, uint8_t *data);
+void __wrap_dynamic_keymap_set_buffer(uint16_t offset, uint16_t size, uint8_t *data) {
+    __real_dynamic_keymap_set_buffer(offset, size, data);
+    ind_mark_dirty();
+}
+
+extern void __real_dynamic_keymap_reset(void);
+void __wrap_dynamic_keymap_reset(void) {
+    __real_dynamic_keymap_reset();
+    ind_mark_dirty();
+}
+
+// ===========================================
 // Bt indicator functions
 // ===========================================
 static void bt_indicate(void) {
-    uint8_t         rgb_index      = rgb_index_table[dev_info.devs];
     static uint32_t last_time      = 0;
     static uint32_t last_long_time = 0;
     static uint8_t  last_status    = 0;
@@ -1246,8 +1351,8 @@ static void bt_indicate(void) {
         } break;
     }
 
-    if (indicator_status) {
-        rgb_matrix_set_color(rgb_index, rgb.r, rgb.g, rgb.b);
+    if (indicator_status && IS_VALID_DEVICE(dev_info.devs)) {
+        set_role_color(dev_role_table[dev_info.devs], rgb.r, rgb.g, rgb.b);
     }
 }
 
@@ -1257,7 +1362,7 @@ static void bt_indicate(void) {
 static void usb_indicate(void) {
     if (USB_DRIVER.state == USB_ACTIVE) {
         if (timer_elapsed32(USB_switch_time) < USB_CONNECTED_LAST_MS) {
-            rgb_matrix_set_color(rgb_index_table[DEVS_USB], rgb_index_color_table[DEVS_USB][0], rgb_index_color_table[DEVS_USB][1], rgb_index_color_table[DEVS_USB][2]);
+            set_role_color(ROLE_USB, rgb_index_color_table[DEVS_USB][0], rgb_index_color_table[DEVS_USB][1], rgb_index_color_table[DEVS_USB][2]);
         }
     } else {
         USB_switch_time = timer_read32();
@@ -1458,26 +1563,9 @@ static void bt_bat_query_period(void) {
 
 static void show_current_keyboard_state(void) {
     // Show current wireless device state when FN is pressed
-    if ((get_highest_layer(default_layer_state | layer_state) == 1) || (get_highest_layer(default_layer_state | layer_state) == 3)) {
-        switch (dev_info.devs) {
-            case DEVS_HOST1: {
-                rgb_matrix_set_color(MM_BLINK_HOST1_INDEX, RGB_WHITE);
-            } break;
-            case DEVS_HOST2: {
-                rgb_matrix_set_color(MM_BLINK_HOST2_INDEX, RGB_WHITE);
-            } break;
-            case DEVS_HOST3: {
-                rgb_matrix_set_color(MM_BLINK_HOST3_INDEX, RGB_WHITE);
-            } break;
-            case DEVS_2_4G: {
-                rgb_matrix_set_color(MM_BLINK_2G4_INDEX, RGB_WHITE);
-            } break;
-            case DEVS_USB: {
-                rgb_matrix_set_color(MM_BLINK_USB_INDEX, RGB_WHITE);
-            } break;
-            default:
-                break;
-        }
+    uint8_t layer = get_highest_layer(default_layer_state | layer_state);
+    if (((layer == 1) || (layer == 3)) && IS_VALID_DEVICE(dev_info.devs)) {
+        set_role_color(dev_role_table[dev_info.devs], RGB_WHITE);
     }
 }
 
@@ -1565,16 +1653,16 @@ bool bt_indicators_advanced(uint8_t led_min, uint8_t led_max) {
     bt_charging_indication();
 
     if (keymap_config.no_gui) {
-        rgb_matrix_set_color(LED_LWIN_INDEX, 0xC8, 0xC8, 0xC8);
+        set_role_color(ROLE_LWIN, 0xC8, 0xC8, 0xC8);
     }
 
     if (dev_info.devs == DEVS_USB) {
-        if (!host_keyboard_led_state().num_lock && (USB_DRIVER.state != USB_SUSPENDED) && (get_highest_layer(default_layer_state) == 0)) {
-            rgb_matrix_set_color(LED_NUM_INDEX, 0xC8, 0xC8, 0xC8);
+        if (!host_keyboard_led_state().num_lock && (USB_DRIVER.state != USB_SUSPENDED) && (ind_base_layer == 0)) {
+            set_role_color(ROLE_NUM, 0xC8, 0xC8, 0xC8);
         }
     } else {
-        if (!host_keyboard_led_state().num_lock && bts_info.bt_info.paired && (get_highest_layer(default_layer_state) == 0)) {
-            rgb_matrix_set_color(LED_NUM_INDEX, 0xC8, 0xC8, 0xC8);
+        if (!host_keyboard_led_state().num_lock && bts_info.bt_info.paired && (ind_base_layer == 0)) {
+            set_role_color(ROLE_NUM, 0xC8, 0xC8, 0xC8);
         }
     }
 

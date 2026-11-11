@@ -26,3 +26,5 @@ endif
 
 VPATH += $(RULES_MK_DIR)/common
 VPATH += $(RULES_MK_DIR)/bled
+
+LDFLAGS += -Wl,--wrap=dynamic_keymap_set_keycode -Wl,--wrap=dynamic_keymap_set_buffer -Wl,--wrap=dynamic_keymap_reset
