@@ -108,18 +108,12 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         case SLED_VAI:
         case BLED_VAI: {
             if (record->event.pressed) {
-                if (keycode == SLED_VAI) {
-                    if (bled_info.sled_val == RGB_MATRIX_MAXIMUM_BRIGHTNESS) {
-                        bled_info.sled_val = 0;
-                    } else {
-                        bled_info.sled_val = qadd8(bled_info.sled_val, RGB_MATRIX_VAL_STEP);
-                    }
+                uint8_t *val = (keycode == SLED_VAI) ? &bled_info.sled_val : &bled_info.bled_val;
+                if (*val >= RGB_MATRIX_MAXIMUM_BRIGHTNESS) {
+                    *val = 0;
                 } else {
-                    if (bled_info.bled_val == RGB_MATRIX_MAXIMUM_BRIGHTNESS) {
-                        bled_info.bled_val = 0;
-                    } else {
-                        bled_info.bled_val = qadd8(bled_info.bled_val, RGB_MATRIX_VAL_STEP);
-                    }
+                    uint16_t next = (uint16_t)(*val) + RGB_MATRIX_VAL_STEP;
+                    *val = (next > RGB_MATRIX_MAXIMUM_BRIGHTNESS) ? RGB_MATRIX_MAXIMUM_BRIGHTNESS : (uint8_t)next;
                 }
                 eeconfig_update_kb(bled_info.raw);
             }
@@ -181,6 +175,20 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             return false;
         }
 
+        case RM_VALU:
+        case RM_VALD:
+        case RM_HUEU:
+        case RM_HUED:
+        case RM_SATU:
+        case RM_SATD:
+        case RM_NEXT:
+        case RM_PREV:
+        case RM_SPDU:
+        case RM_SPDD: {
+            if (!rgb_matrix_get_flags()) return false;
+            return true;
+        }
+
         default:
             break;
     }
@@ -217,18 +225,16 @@ bool show_chrg      = false;
 bool show_chrg_full = false;
 
 bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
-    // if (!backlight_sleep_flag && rgb_matrix_get_flags()) {
     if (!backlight_sleep_flag) {
         bled_task();
-        if (!show_chrg && !show_chrg_full) sled_task();
+        sled_task();
+    } else {
+        bled_fade_all_off();
     }
-
 #ifdef MULTIMODE_ENABLE
-    if (!bt_indicators_advanced(led_min, led_max)) {
-        return false;
-    }
+    if (!bt_indicators_advanced(led_min, led_max)) return false;
 #endif
-
+    bled_flush_smooth();
     return true;
 }
 
