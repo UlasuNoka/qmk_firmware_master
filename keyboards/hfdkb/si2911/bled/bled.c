@@ -47,238 +47,149 @@ static uint8_t bled_leds[] = {100, 101};
 static uint8_t sled_leds[] = {102, 103, 104, 105, 106};
 #define SLED_LED_NUM (sizeof(sled_leds) / sizeof(sled_leds[0]))
 
+extern bool is_charging(void);
+extern uint8_t bt_is_disconnected_alert(void);
+
+static uint8_t  aux_target_rgb[7][3];
+static uint8_t  aux_cur_rgb[7][3];
+static uint8_t  aux_fade_div[7]  = {8, 8, 8, 8, 8, 8, 8};
+static uint32_t aux_smooth_timer = 0;
+
+void bled_set_aux_target(uint8_t idx, uint8_t r, uint8_t g, uint8_t b, uint8_t fade_div) {
+    if (idx >= 7) return;
+    aux_target_rgb[idx][0] = r;
+    aux_target_rgb[idx][1] = g;
+    aux_target_rgb[idx][2] = b;
+    aux_fade_div[idx]      = (fade_div == 0) ? 1 : fade_div;
+}
+
+void bled_fade_all_off(void) {
+    for (uint8_t i = 0; i < 7; i++) bled_set_aux_target(i, 0, 0, 0, 10);
+}
+
+void bled_flush_smooth(void) {
+    if (timer_elapsed32(aux_smooth_timer) >= 8) {
+        aux_smooth_timer = timer_read32();
+        for (uint8_t i = 0; i < 7; i++) {
+            uint8_t div = aux_fade_div[i];
+            for (uint8_t c = 0; c < 3; c++) {
+                int16_t diff = (int16_t)aux_target_rgb[i][c] - (int16_t)aux_cur_rgb[i][c];
+                if (diff != 0) {
+                    int16_t step = diff / (int16_t)div;
+                    if (step == 0) step = (diff > 0) ? 1 : -1;
+                    aux_cur_rgb[i][c] = (uint8_t)((int16_t)aux_cur_rgb[i][c] + step);
+                }
+            }
+        }
+    }
+    for (uint8_t i = 0; i < BLED_LED_NUM; i++) rgb_matrix_set_color(bled_leds[i], aux_cur_rgb[i][0], aux_cur_rgb[i][1], aux_cur_rgb[i][2]);
+    for (uint8_t i = 0; i < SLED_LED_NUM; i++) rgb_matrix_set_color(sled_leds[i], aux_cur_rgb[2 + i][0], aux_cur_rgb[2 + i][1], aux_cur_rgb[2 + i][2]);
+}
+
 void bled_task(void) {
+    uint8_t alert_mode = bt_is_disconnected_alert();
+    if (alert_mode != 0) {
+        uint8_t w = sin8((uint8_t)(timer_read32() >> ((alert_mode == 2) ? 1 : 2)));
+        bled_set_aux_target(0, scale8(220, scale8(w, w)), 0, 0, 1);
+        bled_set_aux_target(1, scale8(220, scale8(255 - w, 255 - w)), 0, 0, 1);
+        return;
+    }
+    if ((dev_info.devs != DEVS_USB) && !is_charging() && bts_info.bt_info.low_vol) {
+        bled_set_aux_target(0, 0, 0, 0, 12);
+        bled_set_aux_target(1, 0, 0, 0, 12);
+        return;
+    }
+    uint8_t c_idx = (dev_info.bled_color > 0 && dev_info.bled_color < COLOR_COUNT) ? (dev_info.bled_color - 1) : 0;
     switch (dev_info.bled_mode) {
         case BLED_MODE_FLOW: {
             uint8_t time = scale16by8(g_rgb_timer, qadd8(bled_info.bled_speed / 4, 1));
             for (uint8_t i = 0; i < BLED_LED_NUM; i++) {
-                HSV hsv = {g_led_config.point[i].x - time, 255, bled_info.bled_val};
-                RGB rgb = hsv_to_rgb(hsv);
-                rgb_matrix_set_color(bled_leds[i], rgb.r, rgb.g, rgb.b);
+                RGB rgb = hsv_to_rgb((HSV){g_led_config.point[bled_leds[i]].x - time, 255, bled_info.bled_val});
+                bled_set_aux_target(i, rgb.r, rgb.g, rgb.b, 6);
             }
             break;
         }
-
         case BLED_MODE_NEON: {
             uint8_t time = scale16by8(g_rgb_timer, qadd8(bled_info.bled_speed / 8, 1));
-            HSV     hsv  = {time, 255, bled_info.bled_val};
-            RGB     rgb  = hsv_to_rgb(hsv);
-            for (uint8_t i = 0; i < BLED_LED_NUM; i++) {
-                rgb_matrix_set_color(bled_leds[i], rgb.r, rgb.g, rgb.b);
-            }
+            RGB     rgb  = hsv_to_rgb((HSV){time, 255, bled_info.bled_val});
+            for (uint8_t i = 0; i < BLED_LED_NUM; i++) bled_set_aux_target(i, rgb.r, rgb.g, rgb.b, 8);
             break;
         }
-
         case BLED_MODE_SOLID: {
-            // if (dev_info.bled_color == COLOR_RAINBOW) {
-            //     // Rainbow solid color
-            //     for (uint8_t i = 0; i < BLED_LED_NUM; i++) {
-            //         HSV hsv = {((i + 1) * 100 + 40), 255, bled_info.bled_val};
-            //         RGB rgb = hsv_to_rgb(hsv);
-            //         rgb_matrix_set_color(bled_leds[i], rgb.r, rgb.g, rgb.b);
-            //     }
-            // } else {
-            HSV hsv;
-            hsv.h   = hsv_table[dev_info.bled_color - 1][0];
-            hsv.s   = hsv_table[dev_info.bled_color - 1][1];
-            hsv.v   = bled_info.bled_val;
-            RGB rgb = hsv_to_rgb(hsv);
-            for (uint8_t i = 0; i < BLED_LED_NUM; i++) {
-                rgb_matrix_set_color(bled_leds[i], rgb.r, rgb.g, rgb.b);
-            }
-            // }
-
+            RGB rgb = hsv_to_rgb((HSV){hsv_table[c_idx][0], hsv_table[c_idx][1], bled_info.bled_val});
+            for (uint8_t i = 0; i < BLED_LED_NUM; i++) bled_set_aux_target(i, rgb.r, rgb.g, rgb.b, 8);
             break;
         }
-
         case BLED_MODE_BREATHING: {
-            // if (dev_info.bled_color == COLOR_RAINBOW) {
-            //     // Rainbow breathing effect
-            //     uint8_t time       = scale16by8(g_rgb_timer, qadd8(bled_info.bled_speed / 4, 1));
-            //     uint8_t brightness = scale8(abs8(sin8(time / 2) - 128) * 2, bled_info.bled_val);
-            //     for (uint8_t i = 0; i < BLED_LED_NUM; i++) {
-            //         HSV hsv = {((i + 1) * 100 + 40), 255, brightness};
-            //         RGB rgb = hsv_to_rgb(hsv);
-            //         rgb_matrix_set_color(bled_leds[i], rgb.r, rgb.g, rgb.b);
-            //     }
-            // } else {
-            HSV hsv;
-            hsv.h              = hsv_table[dev_info.bled_color - 1][0];
-            hsv.s              = hsv_table[dev_info.bled_color - 1][1];
             uint8_t time       = scale16by8(g_rgb_timer, qadd8(bled_info.bled_speed / 4, 1));
             uint8_t brightness = scale8(abs8(sin8(time / 2) - 128) * 2, bled_info.bled_val);
-            hsv.v              = brightness;
-            RGB rgb            = hsv_to_rgb(hsv);
-            for (uint8_t i = 0; i < BLED_LED_NUM; i++) {
-                rgb_matrix_set_color(bled_leds[i], rgb.r, rgb.g, rgb.b);
-            }
-            // }
-            break; // Added missing break statement!
-        }
-
-        default:
+            RGB     rgb        = hsv_to_rgb((HSV){hsv_table[c_idx][0], hsv_table[c_idx][1], brightness});
+            for (uint8_t i = 0; i < BLED_LED_NUM; i++) bled_set_aux_target(i, rgb.r, rgb.g, rgb.b, 6);
             break;
+        }
+        default: break;
     }
 }
 
 void sled_task(void) {
+    uint8_t c_idx = (dev_info.sled_color > 0 && dev_info.sled_color < COLOR_COUNT) ? (dev_info.sled_color - 1) : 0;
     switch (dev_info.sled_mode) {
         case SLED_MODE_FLOW: {
             uint8_t time = scale16by8(g_rgb_timer, qadd8(bled_info.sled_speed / 4, 1));
             for (uint8_t i = 0; i < SLED_LED_NUM; i++) {
-                HSV hsv = {g_led_config.point[i].x - time, 255, bled_info.sled_val};
-                RGB rgb = hsv_to_rgb(hsv);
-                rgb_matrix_set_color(sled_leds[i], rgb.r, rgb.g, rgb.b);
+                RGB rgb = hsv_to_rgb((HSV){g_led_config.point[sled_leds[i]].x - time, 255, bled_info.sled_val});
+                bled_set_aux_target(2 + i, rgb.r, rgb.g, rgb.b, 6);
             }
             break;
         }
-
         case SLED_MODE_CYCLE: {
-            uint8_t time         = scale16by8(g_rgb_timer, qadd8(bled_info.sled_speed / 63, 1));
-            uint8_t cycle_length = SLED_CYCLE_LED_COUNT * 2; // Simplified: just LED count * 2
-            uint8_t position     = time % cycle_length;
-
-            // Determine if we're going forward or backward
-            bool    going_forward = position < SLED_CYCLE_LED_COUNT;
-            uint8_t led_pos;
-
-            if (going_forward) {
-                led_pos = position;
-            } else {
-                led_pos = (SLED_CYCLE_LED_COUNT * 2 - 1) - position; // Proper reverse calculation
-            }
-
-            // Clear all LEDs first
+            uint8_t time    = scale16by8(g_rgb_timer, qadd8(bled_info.sled_speed / 63, 1));
+            uint8_t cyc_len = SLED_CYCLE_LED_COUNT * 2;
+            uint8_t pos     = time % cyc_len;
+            uint8_t led_pos = (pos < SLED_CYCLE_LED_COUNT) ? pos : (cyc_len - 1 - pos);
+            HSV base_hsv    = (dev_info.sled_color == COLOR_RAINBOW)
+                                  ? (HSV){time * 16, 255, bled_info.sled_val}
+                                  : (HSV){hsv_table[c_idx][0], hsv_table[c_idx][1], bled_info.sled_val};
+            RGB rgb = hsv_to_rgb(base_hsv);
             for (uint8_t i = 0; i < SLED_LED_NUM; i++) {
-                rgb_matrix_set_color(sled_leds[i], RGB_OFF);
-            }
-
-            // Set the marquee group
-            HSV base_hsv;
-            if (dev_info.sled_color == COLOR_RAINBOW) {
-                base_hsv = (HSV){time * 16, 255, bled_info.sled_val};
-            } else {
-                base_hsv.h = hsv_table[dev_info.sled_color - 1][0];
-                base_hsv.s = hsv_table[dev_info.sled_color - 1][1];
-                base_hsv.v = bled_info.sled_val;
-            }
-
-            // Light up the group of LEDs
-            for (uint8_t j = 0; j < SLED_CYCLE_GROUP_SIZE; j++) {
-                int16_t led_index = led_pos - j;
-                if (led_index >= 0 && led_index < SLED_CYCLE_LED_COUNT) {
-                    uint8_t actual_led = sled_leds[led_index];
-
-                    // Create fading effect within the group
-                    uint8_t brightness_scale = 255 - (j * 17); // Fade: 255, 210, 165, 120, 75
-                    HSV     hsv              = base_hsv;
-                    hsv.v                    = scale8(hsv.v, brightness_scale);
-
-                    RGB rgb = hsv_to_rgb(hsv);
-                    rgb_matrix_set_color(actual_led, rgb.r, rgb.g, rgb.b);
-                }
+                if (i == led_pos) bled_set_aux_target(2 + i, rgb.r, rgb.g, rgb.b, 1);
+                else bled_set_aux_target(2 + i, 0, 0, 0, 1);
             }
             break;
         }
-
         case SLED_MODE_NEON: {
             uint8_t time = scale16by8(g_rgb_timer, qadd8(bled_info.sled_speed / 8, 1));
-            HSV     hsv  = {time, 255, bled_info.sled_val};
-            RGB     rgb  = hsv_to_rgb(hsv);
-            for (uint8_t i = 0; i < SLED_LED_NUM; i++) {
-                rgb_matrix_set_color(sled_leds[i], rgb.r, rgb.g, rgb.b);
-            }
+            RGB     rgb  = hsv_to_rgb((HSV){time, 255, bled_info.sled_val});
+            for (uint8_t i = 0; i < SLED_LED_NUM; i++) bled_set_aux_target(2 + i, rgb.r, rgb.g, rgb.b, 8);
             break;
         }
-
         case SLED_MODE_BREATHING: {
-            if (dev_info.sled_color == COLOR_RAINBOW) {
-                // Rainbow breathing effect
-                uint8_t time       = scale16by8(g_rgb_timer, qadd8(bled_info.sled_speed / 4, 1));
-                uint8_t brightness = scale8(abs8(sin8(time / 2) - 128) * 2, bled_info.sled_val);
-                for (uint8_t i = 0; i < SLED_LED_NUM; i++) {
-                    HSV hsv = {i * 45, 255, brightness};
-                    RGB rgb = hsv_to_rgb(hsv);
-                    rgb_matrix_set_color(sled_leds[i], rgb.r, rgb.g, rgb.b);
-                }
-            } else {
-                HSV hsv;
-                hsv.h              = hsv_table[dev_info.sled_color - 1][0];
-                hsv.s              = hsv_table[dev_info.sled_color - 1][1];
-                uint8_t time       = scale16by8(g_rgb_timer, qadd8(bled_info.sled_speed / 4, 1));
-                uint8_t brightness = scale8(abs8(sin8(time / 2) - 128) * 2, bled_info.sled_val);
-                hsv.v              = brightness;
-                RGB rgb            = hsv_to_rgb(hsv);
-                for (uint8_t i = 0; i < SLED_LED_NUM; i++) {
-                    rgb_matrix_set_color(sled_leds[i], rgb.r, rgb.g, rgb.b);
-                }
-            }
-            break; // Added missing break statement!
-        }
-
-        case SLED_MODE_SOLID: {
-            if (dev_info.sled_color == COLOR_RAINBOW) {
-                // Rainbow
-                for (uint8_t i = 0; i < SLED_LED_NUM; i++) {
-                    HSV hsv = {i * 45, 255, bled_info.sled_val};
-                    RGB rgb = hsv_to_rgb(hsv);
-                    rgb_matrix_set_color(sled_leds[i], rgb.r, rgb.g, rgb.b);
-                }
-            } else {
-                HSV hsv;
-                hsv.h   = hsv_table[dev_info.sled_color - 1][0];
-                hsv.s   = hsv_table[dev_info.sled_color - 1][1];
-                hsv.v   = bled_info.sled_val;
+            uint8_t time       = scale16by8(g_rgb_timer, qadd8(bled_info.sled_speed / 4, 1));
+            uint8_t brightness = scale8(abs8(sin8(time / 2) - 128) * 2, bled_info.sled_val);
+            for (uint8_t i = 0; i < SLED_LED_NUM; i++) {
+                HSV hsv = (dev_info.sled_color == COLOR_RAINBOW) ? (HSV){i * 45, 255, brightness} : (HSV){hsv_table[c_idx][0], hsv_table[c_idx][1], brightness};
                 RGB rgb = hsv_to_rgb(hsv);
-                for (uint8_t i = 0; i < SLED_LED_NUM; i++) {
-                    rgb_matrix_set_color(sled_leds[i], rgb.r, rgb.g, rgb.b);
-                }
+                bled_set_aux_target(2 + i, rgb.r, rgb.g, rgb.b, 6);
             }
             break;
         }
-
-        case SLED_MODE_CHARGE: {
-            bled_charging_indicate();
+        case SLED_MODE_SOLID: {
+            for (uint8_t i = 0; i < SLED_LED_NUM; i++) {
+                HSV hsv = (dev_info.sled_color == COLOR_RAINBOW) ? (HSV){i * 45, 255, bled_info.sled_val} : (HSV){hsv_table[c_idx][0], hsv_table[c_idx][1], bled_info.sled_val};
+                RGB rgb = hsv_to_rgb(hsv);
+                bled_set_aux_target(2 + i, rgb.r, rgb.g, rgb.b, 8);
+            }
             break;
         }
-
-        case SLED_MODE_VOL: {
-            bled_vol_indicate();
-            break;
-        }
-
-        case SLED_MODE_CHARGED: {
-            bled_charged_indicate();
-            break;
-        }
-
-        case SLED_MODE_LOW: {
-            bled_low_indicate();
-            break;
-        }
-
-        default:
-            break;
+        default: break;
     }
 }
 
 void bled_low_indicate(void) {
-    static uint32_t Low_power_time = 0;
-    static bool     Low_power_bink = false;
-
-    for (uint8_t i = 0; i < SLED_LED_NUM; i++) {
-        rgb_matrix_set_color(sled_leds[i], RGB_OFF);
-    }
-
-    if (timer_elapsed32(Low_power_time) >= 500) {
-        Low_power_bink = !Low_power_bink;
-        Low_power_time = timer_read32();
-    }
-    if (Low_power_bink) {
-        rgb_matrix_set_color(102, RGB_RED);
-    } else {
-        rgb_matrix_set_color(102, RGB_OFF);
-    }
+    uint8_t max_v   = (bled_info.sled_val > 20) ? bled_info.sled_val : 120;
+    uint8_t pulse_v = scale8(255 - cos8(scale16by8(g_rgb_timer, 96)), max_v);
+    bled_set_aux_target(2, pulse_v, 0, 0, 2);
+    for (uint8_t i = 1; i < SLED_LED_NUM; i++) bled_set_aux_target(2 + i, 0, 0, 0, 12);
 }
 
 void bled_charging_indicate(void) {
@@ -350,6 +261,10 @@ void bled_vol_indicate(void) {
 void bled_init(void) {
     dev_info.raw  = eeconfig_read_user();
     bled_info.raw = eeconfig_read_kb();
+    if (bled_info.bled_val > RGB_MATRIX_MAXIMUM_BRIGHTNESS) bled_info.bled_val = RGB_MATRIX_MAXIMUM_BRIGHTNESS;
+    if (bled_info.sled_val > RGB_MATRIX_MAXIMUM_BRIGHTNESS) bled_info.sled_val = RGB_MATRIX_MAXIMUM_BRIGHTNESS;
+    if (dev_info.bled_mode >= BLED_MODE_COUNT) dev_info.bled_mode = BLED_MODE_FLOW;
+    if (dev_info.sled_mode >= SLED_MODE_COUNT) dev_info.sled_mode = SLED_MODE_FLOW;
 }
 
 void bled_eeconfig_init(void) {

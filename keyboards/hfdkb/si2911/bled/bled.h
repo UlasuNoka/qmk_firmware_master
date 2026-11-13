@@ -76,5 +76,8 @@ void bled_charging_indicate(void);
 void bled_charged_indicate(void);
 void bled_vol_indicate(void);
 void bled_low_indicate(void);
+void bled_set_aux_target(uint8_t idx, uint8_t r, uint8_t g, uint8_t b, uint8_t fade_div);
+void bled_fade_all_off(void);
+void bled_flush_smooth(void);
 
 #endif // BLED_H
