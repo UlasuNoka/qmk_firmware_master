@@ -23,6 +23,8 @@
 #include "lib/lib8tion/lib8tion.h"
 #include "usb_main.h"
 #include "wwdg.h"
+#include "spi_master.h"
+#include <stdio.h>
 
 enum _layers {
     WIN_BASE,
@@ -85,6 +87,21 @@ const uint16_t PROGMEM encoder_map[][NUM_ENCODERS][NUM_DIRECTIONS] = {
 // uint8_t sled_mode_before_charge = SLED_MODE_VOL;
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    if (keycode == RGB_TEST && record->event.pressed) {
+        if (spi_start(EXTERNAL_FLASH_SPI_SLAVE_SELECT_PIN, false, 0, 8)) {
+            uint8_t id[3] = {0};
+            spi_write(0x9F);
+            spi_receive(id, 3);
+            spi_stop();
+            char buf[40];
+            uint32_t kb = (id[2] >= 0x10 && id[2] <= 0x18) ? (1UL << (id[2] - 10)) : 0;
+            snprintf(buf, sizeof(buf), "JEDEC: %02X %02X %02X (%lu KB)\n", id[0], id[1], id[2], kb);
+            send_string(buf);
+        } else {
+            send_string("SPI BUSY\n");
+        }
+        return false;
+    }
 #ifdef MULTIMODE_ENABLE
     if (!bt_process_record(keycode, record)) {
         return false;
