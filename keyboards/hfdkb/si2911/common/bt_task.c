@@ -880,6 +880,7 @@ static bool bt_process_record_other(uint16_t keycode, keyrecord_t *record) {
         } break;
 
         case RGB_TEST: {
+            if (!rgb_matrix_get_flags()) return false;
             if (record->event.pressed) {
                 if (!dev_info.rgb_test_en) {
                     dev_info.rgb_test_en = true;
@@ -1358,7 +1359,7 @@ static void bt_bat_low_level_warning(void) {
             rgb_matrix_set_color(i, RGB_OFF);
         }
         bled_low_indicate();
-        if (query_vol_flag) {
+        if (query_vol_flag && !Low_power) {
             for (uint8_t i = 18; i <= 19; i++) {
                 rgb_matrix_set_color(i, RGB_RED);
             }
@@ -1564,38 +1565,62 @@ bool bt_indicators_advanced(uint8_t led_min, uint8_t led_max) {
         // }
     }
 
-    // Show the current keyboard state
-    show_current_keyboard_state();
+    static uint8_t prev_role_ind     = 0;
+    static bool    prev_full_overlay = false;
+    uint8_t        curr_role_ind     = 0;
 
+    uint8_t cur_layer = get_highest_layer(default_layer_state | layer_state);
+    if (((cur_layer == 1) || (cur_layer == 3)) && IS_VALID_DEVICE(dev_info.devs)) {
+        curr_role_ind |= dev_role_table[dev_info.devs];
+    }
+    if (dev_info.devs == DEVS_USB) {
+        if (USB_DRIVER.state == USB_ACTIVE && timer_elapsed32(USB_switch_time) < USB_CONNECTED_LAST_MS) {
+            curr_role_ind |= ROLE_USB;
+        }
+    } else if (indicator_status && indicator_status != INDICATOR_DISABLED && IS_VALID_DEVICE(dev_info.devs)) {
+        curr_role_ind |= dev_role_table[dev_info.devs];
+    }
+    if (keymap_config.no_gui) curr_role_ind |= ROLE_LWIN;
+    bool show_num = (dev_info.devs == DEVS_USB)
+                        ? (!host_keyboard_led_state().num_lock && (USB_DRIVER.state != USB_SUSPENDED) && (ind_base_layer == 0))
+                        : (!host_keyboard_led_state().num_lock && bts_info.bt_info.paired && (ind_base_layer == 0));
+    if (show_num) curr_role_ind |= ROLE_NUM;
+
+    bool curr_full_overlay = query_vol_flag || (dev_info.rgb_test_en && led_inited) || Low_power;
+#ifdef ENABLE_RGB_MATRIX_RAINDROPS
+    if (rgb_matrix_get_flags() && (rgb_matrix_get_mode() == RGB_MATRIX_RAINDROPS)) {
+        if (prev_full_overlay && !curr_full_overlay) {
+            rgb_matrix_mode_noeeprom(RGB_MATRIX_RAINDROPS);
+        }
+        uint8_t cleared = prev_role_ind & ~curr_role_ind;
+        if (cleared) {
+            for (uint8_t i = 0; i < 100; i++) {
+                if (ind_mask[i] & cleared) {
+                    HSV hsv = rgb_matrix_config.hsv;
+                    hsv.h += (uint8_t)((timer_read32() + i * 37U) & 0x3F);
+                    RGB c = hsv_to_rgb(hsv);
+                    rgb_matrix_set_color(i, c.r, c.g, c.b);
+                }
+            }
+        }
+    }
+#endif
+    prev_full_overlay = curr_full_overlay;
+    prev_role_ind     = curr_role_ind;
+
+    show_current_keyboard_state();
     if (dev_info.devs == DEVS_USB) {
         usb_indicate();
     } else {
         bt_indicate();
-        if (gpio_read_pin(MM_CABLE_PIN)) {
-            bt_bat_low_level_shutdown();
-        } else {
-            low_vol_off = false;
-        }
+        if (gpio_read_pin(MM_CABLE_PIN)) bt_bat_low_level_shutdown();
+        else low_vol_off = false;
     }
-
     bt_bat_query_period();
-
-    // Charging status indicator
     bt_charging_indication();
 
-    if (keymap_config.no_gui) {
-        set_role_color(ROLE_LWIN, 0xC8, 0xC8, 0xC8);
-    }
-
-    if (dev_info.devs == DEVS_USB) {
-        if (!host_keyboard_led_state().num_lock && (USB_DRIVER.state != USB_SUSPENDED) && (ind_base_layer == 0)) {
-            set_role_color(ROLE_NUM, 0xC8, 0xC8, 0xC8);
-        }
-    } else {
-        if (!host_keyboard_led_state().num_lock && bts_info.bt_info.paired && (ind_base_layer == 0)) {
-            set_role_color(ROLE_NUM, 0xC8, 0xC8, 0xC8);
-        }
-    }
+    if (curr_role_ind & ROLE_LWIN) set_role_color(ROLE_LWIN, 0xC8, 0xC8, 0xC8);
+    if (curr_role_ind & ROLE_NUM)  set_role_color(ROLE_NUM, 0xC8, 0xC8, 0xC8);
 
     // Factory reset
     factory_reset_indicate();
