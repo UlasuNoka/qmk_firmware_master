@@ -1609,7 +1609,7 @@ bool bt_indicators_advanced(uint8_t led_min, uint8_t led_max) {
                 hsv_t  hsv    = rgb_matrix_config.hsv;
                 int8_t deltaH = (int8_t)((hsv.h + 128) - hsv.h) / 4;
                 hsv.h += (deltaH * random8_max(3));
-                rgb_t c = rgb_matrix_hsv_to_rgb(hsv);
+                rgb_t c = hsv_to_rgb(hsv);
                 rgb_matrix_set_color(rd_x, c.r, c.g, c.b);
             }
         }
@@ -1620,7 +1620,7 @@ bool bt_indicators_advanced(uint8_t led_min, uint8_t led_max) {
                     hsv_t  hsv    = rgb_matrix_config.hsv;
                     int8_t deltaH = (int8_t)((hsv.h + 128) - hsv.h) / 4;
                     hsv.h += (deltaH * random8_max(3));
-                    rgb_t c = rgb_matrix_hsv_to_rgb(hsv);
+                    rgb_t c = hsv_to_rgb(hsv);
                     rgb_matrix_set_color(i, c.r, c.g, c.b);
                 }
             }
