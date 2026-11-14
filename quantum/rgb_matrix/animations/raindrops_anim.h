@@ -15,11 +15,23 @@ static void raindrops_set_color(uint8_t i, effect_params_t* params) {
 }
 
 bool RAINDROPS(effect_params_t* params) {
-    static uint16_t index = RGB_MATRIX_LED_COUNT + 1;
+    static uint16_t index   = RGB_MATRIX_LED_COUNT + 1;
+    static uint8_t  rd_x    = 0;
+    static uint8_t  rd_c    = 1;
+    static uint16_t rd_left = 0;
 
     // Periodic trigger for LED change
     if ((params->iter == 0) && (scale16by8(g_rgb_timer, qadd8(rgb_matrix_config.speed, 16)) % 10 == 0)) {
-        index = random8_max(RGB_MATRIX_LED_COUNT);
+        const uint8_t mask = (RGB_MATRIX_LED_COUNT <= 128) ? 127U : 255U;
+        do {
+            if (rd_left == 0) {
+                rd_left = (uint16_t)mask + 1U;
+                rd_c    = (uint8_t)((timer_read32() | 1U) & mask);
+            }
+            rd_x = (uint8_t)((rd_x * 37U + rd_c) & mask);
+            rd_left--;
+        } while (rd_x >= RGB_MATRIX_LED_COUNT);
+        index = rd_x;
     }
 
     RGB_MATRIX_USE_LIMITS(led_min, led_max);

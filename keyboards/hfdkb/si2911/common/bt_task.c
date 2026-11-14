@@ -1565,13 +1565,8 @@ bool bt_indicators_advanced(uint8_t led_min, uint8_t led_max) {
         // }
     }
 
-    static uint8_t  prev_role_ind     = 0;
-    static bool     prev_full_overlay = false;
-    static uint8_t  prev_rm_flags     = 0;
-    static uint8_t  rd_fill_left      = 0;
-    static uint8_t  rd_x = 0, rd_c = 1;
-    static uint32_t rd_timer          = 0;
-    uint8_t         curr_role_ind     = 0;
+    static uint8_t prev_role_ind = 0;
+    uint8_t        curr_role_ind = 0;
 
     uint8_t cur_layer = get_highest_layer(default_layer_state | layer_state);
     if (((cur_layer == 1) || (cur_layer == 3)) && IS_VALID_DEVICE(dev_info.devs)) {
@@ -1590,29 +1585,8 @@ bool bt_indicators_advanced(uint8_t led_min, uint8_t led_max) {
                         : (!host_keyboard_led_state().num_lock && bts_info.bt_info.paired && (ind_base_layer == 0));
     if (show_num) curr_role_ind |= ROLE_NUM;
 
-    uint8_t curr_rm_flags     = rgb_matrix_get_flags();
-    bool    curr_full_overlay = query_vol_flag || (dev_info.rgb_test_en && led_inited) || Low_power;
 #ifdef ENABLE_RGB_MATRIX_RAINDROPS
-    if (curr_rm_flags && (rgb_matrix_get_mode() == RGB_MATRIX_RAINDROPS)) {
-        if ((prev_full_overlay && !curr_full_overlay) || (!prev_rm_flags && curr_rm_flags)) {
-            rd_fill_left = 128;
-            rd_x         = (uint8_t)(timer_read32() & 127U);
-            rd_c         = (uint8_t)((timer_read32() | 1U) & 127U);
-            rd_timer     = timer_read32();
-        }
-        if (curr_full_overlay) rd_fill_left = 0;
-        while (rd_fill_left && timer_elapsed32(rd_timer) >= 15) {
-            rd_timer += 15;
-            rd_x = (uint8_t)((rd_x * 37U + rd_c) & 127U);
-            rd_fill_left--;
-            if (rd_x < 100 && HAS_ANY_FLAGS(g_led_config.flags[rd_x], curr_rm_flags)) {
-                hsv_t  hsv    = rgb_matrix_config.hsv;
-                int8_t deltaH = (int8_t)((hsv.h + 128) - hsv.h) / 4;
-                hsv.h += (deltaH * random8_max(3));
-                rgb_t c = hsv_to_rgb(hsv);
-                rgb_matrix_set_color(rd_x, c.r, c.g, c.b);
-            }
-        }
+    if (rgb_matrix_get_flags() && (rgb_matrix_get_mode() == RGB_MATRIX_RAINDROPS)) {
         uint8_t cleared = prev_role_ind & ~curr_role_ind;
         if (cleared) {
             for (uint8_t i = 0; i < 100; i++) {
@@ -1627,9 +1601,7 @@ bool bt_indicators_advanced(uint8_t led_min, uint8_t led_max) {
         }
     }
 #endif
-    prev_role_ind     = curr_role_ind;
-    prev_full_overlay = curr_full_overlay;
-    prev_rm_flags     = curr_rm_flags;
+    prev_role_ind = curr_role_ind;
 
     show_current_keyboard_state();
     if (dev_info.devs == DEVS_USB) {
