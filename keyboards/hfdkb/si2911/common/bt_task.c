@@ -1400,26 +1400,25 @@ static void bt_charging_indication(void) {
                     is_in_charging_state = true;
                     show_chrg_full = false;
                     if (!charge_complete_warning.triggered) {
-                        charge_complete_warning.triggered   = true;
-                        charge_complete_warning.blink_count = 0;
-                        charge_complete_warning.blink_state = false;
-                        charge_complete_warning.completed   = false;
-                        show_chrg = true;
+                        charge_complete_warning.triggered  = true;
+                        charge_complete_warning.blink_time = timer_read32();
+                        charge_complete_warning.completed  = false;
+                        show_chrg                          = true;
                     }
                 }
             }
             if (!charge_complete_warning.completed) {
-                if (timer_elapsed32(charge_complete_warning.blink_time) >= 500) {
-                    charge_complete_warning.blink_time  = timer_read32();
-                    charge_complete_warning.blink_state = !charge_complete_warning.blink_state;
-                    if (charge_complete_warning.blink_state && ++charge_complete_warning.blink_count > 10) {
-                        charge_complete_warning.completed = true;
-                        charge_complete_warning.blink_state = false;
-                        show_chrg = false;
-                    }
+                uint32_t elapsed = timer_elapsed32(charge_complete_warning.blink_time);
+                if (elapsed >= 10000UL) {
+                    charge_complete_warning.completed = true;
+                    show_chrg                         = false;
+                } else {
+                    uint16_t cyc_ms = (uint16_t)(elapsed % 1000UL);
+                    uint8_t  ang    = (uint8_t)((cyc_ms * 256UL) / 1000UL);
+                    uint8_t  w      = (uint8_t)(255U - cos8(ang));
+                    uint8_t  tg     = scale8(120, scale8(w, w));
+                    for (uint8_t i = 0; i < 5; i++) bled_set_aux_target(2 + i, 0, tg, 0, 2);
                 }
-                uint8_t tg = charge_complete_warning.blink_state ? 120 : 0;
-                for (uint8_t i = 0; i < 5; i++) bled_set_aux_target(2 + i, 0, tg, 0, 3);
             }
         }
     } else {

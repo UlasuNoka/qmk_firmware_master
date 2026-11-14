@@ -181,6 +181,37 @@ void sled_task(void) {
             }
             break;
         }
+        case SLED_MODE_PULSE_STEP: {
+            static uint32_t p_accum = 0;
+            static uint32_t p_timer = 0;
+            uint32_t        dt      = timer_elapsed32(p_timer);
+            if (dt > 50) dt = 50;
+            p_timer = timer_read32();
+            uint32_t speed_mult = 30UL + ((uint32_t)bled_info.sled_speed / 4UL);
+            p_accum += dt * speed_mult;
+            uint8_t sub     = (uint8_t)((p_accum >> 8) & 0xFF);
+            uint8_t stp     = (uint8_t)((p_accum >> 16) & 0x07);
+            uint8_t led_pos = (stp < SLED_CYCLE_LED_COUNT) ? stp : (8U - stp);
+            uint8_t w       = 0;
+            if (sub < 90) {
+                w = (uint8_t)(255U - cos8((uint8_t)(((uint16_t)sub * 128U) / 89U)));
+            } else if (sub < 130) {
+                w = 255;
+            } else if (sub < 220) {
+                w = cos8((uint8_t)(((uint16_t)(sub - 130U) * 128U) / 89U));
+            }
+            w = scale8(w, w);
+            uint8_t step_hue = (uint8_t)(((p_accum >> 16) & 0xFF) * 32U);
+            HSV     base_hsv = (dev_info.sled_color == COLOR_RAINBOW)
+                                   ? (HSV){step_hue, 255, bled_info.sled_val}
+                                   : (HSV){hsv_table[c_idx][0], hsv_table[c_idx][1], bled_info.sled_val};
+            RGB full_rgb = hsv_to_rgb(base_hsv);
+            for (uint8_t i = 0; i < SLED_LED_NUM; i++) {
+                if (i == led_pos) bled_set_aux_target(2 + i, scale8(full_rgb.r, w), scale8(full_rgb.g, w), scale8(full_rgb.b, w), 2);
+                else bled_set_aux_target(2 + i, 0, 0, 0, 2);
+            }
+            break;
+        }
         default: break;
     }
 }
