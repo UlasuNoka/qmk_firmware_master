@@ -975,6 +975,21 @@ static void bt_used_pin_init(void) {
 #endif
 }
 
+void rgb_drivers_wake(bool reset_pulse) {
+#ifdef RGB_MATRIX_SHUTDOWN_PIN
+    if (reset_pulse) {
+        gpio_write_pin_low(RGB_MATRIX_SHUTDOWN_PIN);
+        wait_ms(1);
+    }
+    gpio_write_pin_high(RGB_MATRIX_SHUTDOWN_PIN);
+    wait_ms(2);
+#else
+    (void)reset_pulse;
+#endif
+    rgb_matrix_set_color_all(0, 0, 0);
+    rgb_matrix_init();
+}
+
 static void bt_scan_mode(void) {
 #if defined(MM_BT_MODE_PIN) && defined(MM_2G4_MODE_PIN)
     uint8_t        now_mode   = 0;
@@ -1003,11 +1018,7 @@ static void bt_scan_mode(void) {
     if ((old_mode != now_mode) && !Low_power) {
         old_mode = now_mode;
 
-        gpio_write_pin_low(RGB_MATRIX_SHUTDOWN_PIN);
-        wait_ms(1);
-        gpio_write_pin_high(RGB_MATRIX_SHUTDOWN_PIN);
-
-        rgb_matrix_init();
+        rgb_drivers_wake(true);
     }
 #endif
 }
@@ -1115,12 +1126,7 @@ static void open_rgb(void) {
         // wait_ms(1);
         // ckled2001_sw_return_normal(DRIVER_ADDR_2);
 
-#ifdef RGB_MATRIX_SHUTDOWN_PIN
-        gpio_write_pin_low(RGB_MATRIX_SHUTDOWN_PIN);
-        wait_ms(1);
-        gpio_write_pin_high(RGB_MATRIX_SHUTDOWN_PIN);
-        rgb_matrix_init();
-#endif
+        rgb_drivers_wake(true);
 
         kb_sleep_flag       = false;
         low_vol_offed_sleep = false;

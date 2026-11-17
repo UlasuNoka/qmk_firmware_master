@@ -105,3 +105,4 @@ bool bt_indicators_advanced(uint8_t led_min, uint8_t led_max);
  * @return None
  */
 void bt_switch_mode(uint8_t last_mode, uint8_t now_mode, uint8_t reset);
+void rgb_drivers_wake(bool reset_pulse);
