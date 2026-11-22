@@ -397,6 +397,10 @@ __attribute__((weak)) void register_code16(uint16_t code) {
                 WL_PROCESS_KEYS(KC_LGUI, 1);
         }
         WL_PROCESS_KEYS(QK_MODS_GET_BASIC_KEYCODE(code), 1);
+        bts_task(dev_info.devs);
+        while (bts_is_busy()) {
+            wait_ms(1);
+        }
     } else {
         if (IS_MODIFIER_KEYCODE(code) || code == KC_NO) {
             do_code16(code, register_mods);
@@ -434,6 +438,10 @@ __attribute__((weak)) void unregister_code16(uint16_t code) {
                 WL_PROCESS_KEYS(KC_LGUI, 0);
         }
         WL_PROCESS_KEYS(QK_MODS_GET_BASIC_KEYCODE(code), 0);
+        bts_task(dev_info.devs);
+        while (bts_is_busy()) {
+            wait_ms(1);
+        }
     } else {
         unregister_code(code);
         if (IS_MODIFIER_KEYCODE(code) || code == KC_NO) {
@@ -1620,8 +1628,9 @@ bool bt_indicators_advanced(uint8_t led_min, uint8_t led_max) {
     bt_bat_query_period();
     bt_charging_indication();
 
-    if (curr_role_ind & ROLE_LWIN) set_role_color(ROLE_LWIN, 0xC8, 0xC8, 0xC8);
-    if (curr_role_ind & ROLE_NUM)  set_role_color(ROLE_NUM, 0xC8, 0xC8, 0xC8);
+    uint8_t ind_v = Low_power ? 0x38 : 0xC8;
+    if (curr_role_ind & ROLE_LWIN) set_role_color(ROLE_LWIN, ind_v, ind_v, ind_v);
+    if (curr_role_ind & ROLE_NUM)  set_role_color(ROLE_NUM, ind_v, ind_v, ind_v);
 
     // Factory reset
     factory_reset_indicate();
