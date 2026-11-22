@@ -18,10 +18,13 @@ bool RAINDROPS(effect_params_t* params) {
     static uint16_t index   = RGB_MATRIX_LED_COUNT + 1;
     static uint8_t  rd_x    = 0;
     static uint8_t  rd_c    = 1;
-    static uint16_t rd_left = 0;
+    static uint16_t rd_left  = 0;
+    static uint32_t rd_timer = 0;
 
     // Periodic trigger for LED change
-    if ((params->iter == 0) && (scale16by8(g_rgb_timer, qadd8(rgb_matrix_config.speed, 16)) % 10 == 0)) {
+    uint16_t step_ms = 640U - (((uint16_t)rgb_matrix_config.speed * 600U) / 255U);
+    if ((params->iter == 0) && (timer_elapsed32(rd_timer) >= step_ms)) {
+        rd_timer = timer_read32();
         const uint8_t mask = (RGB_MATRIX_LED_COUNT <= 128) ? 127U : 255U;
         do {
             if (rd_left == 0) {

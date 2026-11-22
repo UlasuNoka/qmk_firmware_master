@@ -58,8 +58,8 @@
         "driver": "snled27351",
         "react_on_keyup": true,
         "sleep": true,
-        "val_steps": 45,
-        "speed_steps": 64,
+        "val_steps": 15,
+        "speed_steps": 32,
         "hue_steps": 16,
         "max_brightness": 180,
         "default": {
